@@ -30,6 +30,8 @@ use csv;
 use super::Error;
 use super::types;
 use super::symbols;
+use csv::StringRecord;
+use std::ptr::null;
 
 /// the logical database, which is a collection of schemata
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,6 +103,27 @@ impl Database {
             .objects
             .insert(object_name.clone(), SchemaObject::File(file_object));
         Ok(())
+    }
+
+    pub fn select(
+        &self,
+        schema_name: &symbols::Name,
+        object_name: &symbols::Name,
+    ) -> Result<Vec<StringRecord>, Error> {
+        let schema = self.schemata
+            .get(schema_name)
+            .ok_or(Error::from(format!("Schema '{}' not found", schema_name)))?;
+        let object = schema.objects.get(object_name).ok_or(Error::from(format!(
+            "Object '{}' not found",
+            object_name
+        )))?;
+        match object {
+            &SchemaObject::File(ref file) => {
+                File::read_data_from_data_file(object_name, file.path.to_str())
+            },
+            &SchemaObject::Table(ref table) => unimplemented!(),
+            &SchemaObject::View(ref view) => unimplemented!(),
+        }
     }
 
     pub fn describe(
@@ -233,6 +256,25 @@ impl File {
             rows: RowSet { columns },
             path: PathBuf::from(path),
         })
+    }
+
+    fn read_data_from_data_file(object_name: &symbols::Name, path: Option<&str>) -> Result<Vec<StringRecord>, Error> {
+        let reader_result = csv::Reader::from_path(path.unwrap());
+
+        if let Err(nested) = reader_result {
+            return Err(Error::new(
+                &format!("Could not open file '{}'", path.unwrap()),
+                Box::new(nested),
+            ));
+        };
+
+        let mut reader = reader_result.unwrap();
+        let mut record_vec: Vec<StringRecord> = Vec::new();
+        for result in reader.records() {
+            let record = result.unwrap();
+            record_vec.push(record);
+        }
+        return Ok(record_vec);
     }
 }
 

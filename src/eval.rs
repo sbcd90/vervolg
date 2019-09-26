@@ -125,26 +125,38 @@ impl RowSet for MetaDataRowSet {
 }
 
 struct FullTableScanRowSet {
+    index: usize,
     table_name: String,
     meta_data: schema::RowSet,
+    data: Vec<StringRecord>,
 }
 
 impl FullTableScanRowSet {
-    fn new(table_name: String, meta_data: schema::RowSet) -> Self {
+    fn new(table_name: String, meta_data: schema::RowSet, data: Vec<StringRecord>) -> Self {
         FullTableScanRowSet {
+            index: 0,
             table_name,
             meta_data,
+            data,
         }
     }
 }
 
 impl RowSet for FullTableScanRowSet {
     fn reset(&mut self) -> Result<(), Error> {
+        self.index = 0;
         Ok(())
     }
 
     fn next<'a>(&'a mut self) -> Option<RowResult<'a>> {
-        None
+        let rows = &self.data;
+        if self.index < rows.len() {
+            let row = &rows[self.index];
+            self.index += 1;
+            Some(Ok(row))
+        } else {
+            None
+        }
     }
 
     fn meta<'a>(&'a self) -> &'a schema::RowSet {
@@ -479,7 +491,16 @@ impl<'a> Evaluator<'a> {
             &ast::TableExpression::Named {
                 ref name,
                 ref alias,
-            } => unimplemented!(),
+            } => {
+                let rowSet = self.session.database.select(
+                    &self.session.default_schema,
+                    &name[0])?;
+                let metadata = self.session.database.describe(
+                    &self.session.default_schema,
+                    &name[0])?;
+                return Ok(Box::new(FullTableScanRowSet::new(name[0].as_str().to_string(),
+                                                     metadata, rowSet)));
+            },//unimplemented!(),
             &ast::TableExpression::Select {
                 ref select,
                 ref alias,
